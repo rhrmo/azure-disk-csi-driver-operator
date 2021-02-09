@@ -77,7 +77,6 @@ metadata:
   annotations:
     config.openshift.io/inject-proxy: csi-driver
 spec:
-  serviceName: azure-disk-csi-driver-controller
   replicas: 1
   selector:
     matchLabels:
