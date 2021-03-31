@@ -2,6 +2,7 @@
 // sources:
 // assets/controller.yaml
 // assets/controller_sa.yaml
+// assets/csidriver.yaml
 // assets/node.yaml
 // assets/node_sa.yaml
 // assets/rbac/attacher_binding.yaml
@@ -254,6 +255,30 @@ func controller_saYaml() (*asset, error) {
 	}
 
 	info := bindataFileInfo{name: "controller_sa.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
+	a := &asset{bytes: bytes, info: info}
+	return a, nil
+}
+
+var _csidriverYaml = []byte(`apiVersion: storage.k8s.io/v1
+kind: CSIDriver
+metadata:
+  name: disk.csi.azure.com
+spec:
+  attachRequired: true
+  podInfoOnMount: true
+`)
+
+func csidriverYamlBytes() ([]byte, error) {
+	return _csidriverYaml, nil
+}
+
+func csidriverYaml() (*asset, error) {
+	bytes, err := csidriverYamlBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	info := bindataFileInfo{name: "csidriver.yaml", size: 0, mode: os.FileMode(0), modTime: time.Unix(0, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -900,6 +925,7 @@ func AssetNames() []string {
 var _bindata = map[string]func() (*asset, error){
 	"controller.yaml":                         controllerYaml,
 	"controller_sa.yaml":                      controller_saYaml,
+	"csidriver.yaml":                          csidriverYaml,
 	"node.yaml":                               nodeYaml,
 	"node_sa.yaml":                            node_saYaml,
 	"rbac/attacher_binding.yaml":              rbacAttacher_bindingYaml,
@@ -959,6 +985,7 @@ type bintree struct {
 var _bintree = &bintree{nil, map[string]*bintree{
 	"controller.yaml":    {controllerYaml, map[string]*bintree{}},
 	"controller_sa.yaml": {controller_saYaml, map[string]*bintree{}},
+	"csidriver.yaml":     {csidriverYaml, map[string]*bintree{}},
 	"node.yaml":          {nodeYaml, map[string]*bintree{}},
 	"node_sa.yaml":       {node_saYaml, map[string]*bintree{}},
 	"rbac": {nil, map[string]*bintree{
