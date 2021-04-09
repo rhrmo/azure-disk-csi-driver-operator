@@ -852,8 +852,7 @@ metadata:
   name: managed-csi
 provisioner: disk.csi.azure.com
 parameters:
-  # TODO: Premium_LRS?
-  skuname: StandardSSD_LRS
+  skuname: Premium_LRS
 volumeBindingMode: WaitForFirstConsumer
 allowVolumeExpansion: true
 reclaimPolicy: Delete
