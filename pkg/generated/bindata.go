@@ -165,9 +165,9 @@ spec:
             - --feature-gates=Topology=true
             - --extra-create-metadata=true
             - --http-endpoint=localhost:8202
+            - --timeout=15s
             - --v=${LOG_LEVEL}
             # TODO: check if this is required
-            # - --timeout=120s
             # - --enable-leader-election
             # - --leader-election-type=leases
           env:
@@ -207,6 +207,7 @@ spec:
           args:
             - --csi-address=$(ADDRESS)
             - --http-endpoint=localhost:8203
+            - --timeout=120s
             - --v=${LOG_LEVEL}
           env:
             - name: ADDRESS
