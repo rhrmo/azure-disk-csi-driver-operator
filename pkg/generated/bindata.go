@@ -163,7 +163,6 @@ spec:
             - --csi-address=$(ADDRESS)
             - --default-fstype=ext4
             - --feature-gates=Topology=true
-            - --extra-create-metadata=true
             - --http-endpoint=localhost:8202
             - --timeout=15s
             - --v=${LOG_LEVEL}
@@ -992,6 +991,9 @@ rules:
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
 `)
 
 func rbacResizer_roleYamlBytes() ([]byte, error) {
