@@ -51,14 +51,14 @@ func RunOperator(ctx context.Context, controllerConfig *controllercmd.Controller
 		return err
 	}
 
-	volumeSnapshotPath := "volumesnapshotclass.yaml"
 	runningOnAzureStackHub, err := azurestackhub.RunningOnAzureStackHub(ctx, configClient.ConfigV1())
 	if err != nil {
 		return err
 	}
+	volumeSnapshotPath := "volumesnapshotclass.yaml"
 	if runningOnAzureStackHub {
 		klog.Infof("Detected AzureStackHub cloud infrastructure, starting endpoint config sync")
-		volumeSnapshotPath = "azureStackCloud" + volumeSnapshotPath
+		volumeSnapshotPath = "volumesnapshotclass_ash.yaml"
 		azureStackConfigSyncer, err := azurestackhub.NewAzureStackHubConfigSyncer(
 			defaultNamespace,
 			openShiftConfigNamespace,
