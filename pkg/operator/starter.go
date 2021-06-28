@@ -3,12 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
-	opCfgV1 "github.com/openshift/api/config/v1"
-	cfgV1 "github.com/openshift/client-go/config/clientset/versioned/typed/config/v1"
-	"github.com/openshift/library-go/pkg/controller/factory"
-	"github.com/openshift/library-go/pkg/operator/events"
-	"github.com/openshift/library-go/pkg/operator/resourcesynccontroller"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/openshift/azure-disk-csi-driver-operator/pkg/azurestackhub"
 	"time"
 
 	"k8s.io/client-go/dynamic"
@@ -29,15 +24,10 @@ import (
 )
 
 const (
-	defaultNamespace = "openshift-cluster-csi-drivers"
-	operatorName     = "azure-disk-csi-driver-operator"
-	operandName      = "azure-disk-csi-driver"
-	infraConfigName  = "cluster"
-
-	// ASH specific constants
-	azureStackCloudFolderPrefix = "azureStackCloud/"
-	openShiftConfigNamespace    = "openshift-config"
-	configMapName               = "cloud-provider-config"
+	defaultNamespace         = "openshift-cluster-csi-drivers"
+	operatorName             = "azure-disk-csi-driver-operator"
+	operandName              = "azure-disk-csi-driver"
+	openShiftConfigNamespace = "openshift-config"
 )
 
 func RunOperator(ctx context.Context, controllerConfig *controllercmd.ControllerContext) error {
@@ -61,17 +51,17 @@ func RunOperator(ctx context.Context, controllerConfig *controllercmd.Controller
 		return err
 	}
 
-	runningOnAzureStackHub, err := runningOnAzureStackHub(ctx, configClient.ConfigV1())
+	volumeSnapshotPath := "volumesnapshotclass.yaml"
+	runningOnAzureStackHub, err := azurestackhub.RunningOnAzureStackHub(ctx, configClient.ConfigV1())
 	if err != nil {
 		return err
 	}
 	if runningOnAzureStackHub {
-		//controllerDeployment = azureStackCloudFolderPrefix + controllerDeployment
-		//volumeSnapshotClass = azureStackCloudFolderPrefix + volumeSnapshotClass
-		//nodeDaemonSet = azureStackCloudFolderPrefix + nodeDaemonSet
-
 		klog.Infof("Detected AzureStackHub cloud infrastructure, starting endpoint config sync")
-		azureStackConfigSyncer, err := newAzureStackConfigSyncer(
+		volumeSnapshotPath = "azureStackCloud" + volumeSnapshotPath
+		azureStackConfigSyncer, err := azurestackhub.NewAzureStackHubConfigSyncer(
+			defaultNamespace,
+			openShiftConfigNamespace,
 			operatorClient,
 			kubeInformersForNamespaces,
 			kubeClient,
@@ -95,8 +85,8 @@ func RunOperator(ctx context.Context, controllerConfig *controllercmd.Controller
 		kubeInformersForNamespaces,
 		assets.ReadFile,
 		[]string{
+			volumeSnapshotPath,
 			"storageclass.yaml",
-			"volumesnapshotclass.yaml",
 			"controller_sa.yaml",
 			"node_sa.yaml",
 			"csidriver.yaml",
@@ -129,6 +119,7 @@ func RunOperator(ctx context.Context, controllerConfig *controllercmd.Controller
 		configInformers,
 		nil,
 		csidrivercontrollerservicecontroller.WithObservedProxyDeploymentHook(),
+		azurestackhub.WithAzureStackHubDeploymentHook(runningOnAzureStackHub),
 	).WithCSIDriverNodeService(
 		"AzureDiskDriverNodeServiceController",
 		assets.ReadFile,
@@ -137,6 +128,7 @@ func RunOperator(ctx context.Context, controllerConfig *controllercmd.Controller
 		kubeInformersForNamespaces.InformersFor(defaultNamespace),
 		nil, // Node doesn't need to react to any changes
 		csidrivernodeservicecontroller.WithObservedProxyDaemonSetHook(),
+		azurestackhub.WithAzureStackHubDaemonSetHook(runningOnAzureStackHub),
 	).WithServiceMonitorController(
 		"AzureDiskServiceMonitorController",
 		dynamicClient,
@@ -155,48 +147,4 @@ func RunOperator(ctx context.Context, controllerConfig *controllercmd.Controller
 	<-ctx.Done()
 
 	return fmt.Errorf("stopped")
-}
-
-func runningOnAzureStackHub(ctx context.Context, configClient cfgV1.ConfigV1Interface) (bool, error) {
-	infrastructure, err := configClient.Infrastructures().Get(ctx, infraConfigName, v1.GetOptions{})
-	if err != nil {
-		return false, err
-	}
-
-	if infrastructure.Status.PlatformStatus != nil &&
-		infrastructure.Status.PlatformStatus.Azure != nil &&
-		infrastructure.Status.PlatformStatus.Azure.CloudName == opCfgV1.AzureStackCloud {
-		return true, nil
-	}
-
-	return false, nil
-}
-
-func newAzureStackConfigSyncer(
-	operatorClient v1helpers.OperatorClient,
-	kubeInformers v1helpers.KubeInformersForNamespaces,
-	kubeClient kubeclient.Interface,
-	eventRecorder events.Recorder,
-) (factory.Controller, error) {
-	// sync config map with additional trust bundle to the operator namespace,
-	// so the operator can get it as a ConfigMap volume.
-	srcConfigMap := resourcesynccontroller.ResourceLocation{
-		Namespace: openShiftConfigNamespace,
-		Name:      configMapName,
-	}
-	dstConfigMap := resourcesynccontroller.ResourceLocation{
-		Namespace: defaultNamespace,
-		Name:      configMapName,
-	}
-	certController := resourcesynccontroller.NewResourceSyncController(
-		operatorClient,
-		kubeInformers,
-		kubeClient.CoreV1(),
-		kubeClient.CoreV1(),
-		eventRecorder)
-	err := certController.SyncConfigMap(dstConfigMap, srcConfigMap)
-	if err != nil {
-		return nil, err
-	}
-	return certController, nil
 }
