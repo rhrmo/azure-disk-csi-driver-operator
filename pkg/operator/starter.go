@@ -55,10 +55,12 @@ func RunOperator(ctx context.Context, controllerConfig *controllercmd.Controller
 	if err != nil {
 		return err
 	}
+	storageClassPath := "storageclass.yaml"
 	volumeSnapshotPath := "volumesnapshotclass.yaml"
 	if runningOnAzureStackHub {
 		klog.Infof("Detected AzureStackHub cloud infrastructure, starting endpoint config sync")
 		volumeSnapshotPath = "volumesnapshotclass_ash.yaml"
+		storageClassPath = "storageclass_ash.yaml"
 		azureStackConfigSyncer, err := azurestackhub.NewAzureStackHubConfigSyncer(
 			defaultNamespace,
 			openShiftConfigNamespace,
@@ -86,7 +88,7 @@ func RunOperator(ctx context.Context, controllerConfig *controllercmd.Controller
 		assets.ReadFile,
 		[]string{
 			volumeSnapshotPath,
-			"storageclass.yaml",
+			storageClassPath,
 			"controller_sa.yaml",
 			"node_sa.yaml",
 			"csidriver.yaml",
