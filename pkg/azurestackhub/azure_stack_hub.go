@@ -59,11 +59,6 @@ func injectEnvAndMounts(spec *coreV1.PodSpec) {
 				MountPath: azureStackCloudConfig,
 				SubPath:   "endpoints",
 			})
-			c.VolumeMounts = append(c.VolumeMounts, coreV1.VolumeMount{
-				Name:      sslName,
-				MountPath: sslHostPath,
-				ReadOnly:  true,
-			})
 			break
 		}
 	}
@@ -75,15 +70,6 @@ func injectEnvAndMounts(spec *coreV1.PodSpec) {
 				LocalObjectReference: coreV1.LocalObjectReference{
 					Name: configMapName,
 				},
-			},
-		},
-	})
-
-	spec.Volumes = append(spec.Volumes, coreV1.Volume{
-		Name: sslName,
-		VolumeSource: coreV1.VolumeSource{
-			HostPath: &coreV1.HostPathVolumeSource{
-				Path: sslHostPath,
 			},
 		},
 	})
