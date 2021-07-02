@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"github.com/openshift/azure-disk-csi-driver-operator/pkg/azurestackhub"
 	"time"
 
 	"k8s.io/client-go/dynamic"
@@ -23,15 +24,16 @@ import (
 )
 
 const (
-	defaultNamespace = "openshift-cluster-csi-drivers"
-	operatorName     = "azure-disk-csi-driver-operator"
-	operandName      = "azure-disk-csi-driver"
+	defaultNamespace         = "openshift-cluster-csi-drivers"
+	operatorName             = "azure-disk-csi-driver-operator"
+	operandName              = "azure-disk-csi-driver"
+	openShiftConfigNamespace = "openshift-config"
 )
 
 func RunOperator(ctx context.Context, controllerConfig *controllercmd.ControllerContext) error {
 	// Create core clientset and informers
 	kubeClient := kubeclient.NewForConfigOrDie(rest.AddUserAgent(controllerConfig.KubeConfig, operatorName))
-	kubeInformersForNamespaces := v1helpers.NewKubeInformersForNamespaces(kubeClient, defaultNamespace, "")
+	kubeInformersForNamespaces := v1helpers.NewKubeInformersForNamespaces(kubeClient, defaultNamespace, "", openShiftConfigNamespace)
 
 	// Create config clientset and informer. This is used to get the cluster ID
 	configClient := configclient.NewForConfigOrDie(rest.AddUserAgent(controllerConfig.KubeConfig, operatorName))
@@ -49,6 +51,29 @@ func RunOperator(ctx context.Context, controllerConfig *controllercmd.Controller
 		return err
 	}
 
+	runningOnAzureStackHub, err := azurestackhub.RunningOnAzureStackHub(ctx, configClient.ConfigV1())
+	if err != nil {
+		return err
+	}
+	storageClassPath := "storageclass.yaml"
+	volumeSnapshotPath := "volumesnapshotclass.yaml"
+	if runningOnAzureStackHub {
+		klog.Infof("Detected AzureStackHub cloud infrastructure, starting endpoint config sync")
+		volumeSnapshotPath = "volumesnapshotclass_ash.yaml"
+		storageClassPath = "storageclass_ash.yaml"
+		azureStackConfigSyncer, err := azurestackhub.NewAzureStackHubConfigSyncer(
+			defaultNamespace,
+			openShiftConfigNamespace,
+			operatorClient,
+			kubeInformersForNamespaces,
+			kubeClient,
+			controllerConfig.EventRecorder)
+		if err != nil {
+			return err
+		}
+		go azureStackConfigSyncer.Run(ctx, 1)
+	}
+
 	csiControllerSet := csicontrollerset.NewCSIControllerSet(
 		operatorClient,
 		controllerConfig.EventRecorder,
@@ -62,8 +87,8 @@ func RunOperator(ctx context.Context, controllerConfig *controllercmd.Controller
 		kubeInformersForNamespaces,
 		assets.ReadFile,
 		[]string{
-			"storageclass.yaml",
-			"volumesnapshotclass.yaml",
+			volumeSnapshotPath,
+			storageClassPath,
 			"controller_sa.yaml",
 			"node_sa.yaml",
 			"csidriver.yaml",
@@ -96,6 +121,7 @@ func RunOperator(ctx context.Context, controllerConfig *controllercmd.Controller
 		configInformers,
 		nil,
 		csidrivercontrollerservicecontroller.WithObservedProxyDeploymentHook(),
+		azurestackhub.WithAzureStackHubDeploymentHook(runningOnAzureStackHub),
 	).WithCSIDriverNodeService(
 		"AzureDiskDriverNodeServiceController",
 		assets.ReadFile,
@@ -104,15 +130,13 @@ func RunOperator(ctx context.Context, controllerConfig *controllercmd.Controller
 		kubeInformersForNamespaces.InformersFor(defaultNamespace),
 		nil, // Node doesn't need to react to any changes
 		csidrivernodeservicecontroller.WithObservedProxyDaemonSetHook(),
+		azurestackhub.WithAzureStackHubDaemonSetHook(runningOnAzureStackHub),
 	).WithServiceMonitorController(
 		"AzureDiskServiceMonitorController",
 		dynamicClient,
 		assets.ReadFile,
 		"servicemonitor.yaml",
 	)
-	if err != nil {
-		return err
-	}
 
 	klog.Info("Starting the informers")
 	go kubeInformersForNamespaces.Start(ctx.Done())
