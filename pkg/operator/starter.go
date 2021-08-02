@@ -3,8 +3,9 @@ package operator
 import (
 	"context"
 	"fmt"
-	"github.com/openshift/azure-disk-csi-driver-operator/pkg/azurestackhub"
 	"time"
+
+	"github.com/openshift/azure-disk-csi-driver-operator/pkg/azurestackhub"
 
 	"k8s.io/client-go/dynamic"
 	kubeclient "k8s.io/client-go/kubernetes"
@@ -92,6 +93,7 @@ func RunOperator(ctx context.Context, controllerConfig *controllercmd.Controller
 			volumeSnapshotPath,
 			storageClassPath,
 			"controller_sa.yaml",
+			"controller_pdb.yaml",
 			"node_sa.yaml",
 			"csidriver.yaml",
 			"service.yaml",
