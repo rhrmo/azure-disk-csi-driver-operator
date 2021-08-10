@@ -24,7 +24,7 @@ const (
 	sslHostPath           = "/etc/ssl/certs"
 	azureCfgName          = "azure-cfg"
 	configEnvName         = "AZURE_ENVIRONMENT_FILEPATH"
-	azureStackCloudConfig = "/etc/kubernetes/azurestackcloud.json"
+	azureStackCloudConfig = "/etc/azure/azurestackcloud.json"
 )
 
 func WithAzureStackHubDaemonSetHook(runningOnAzureStackHub bool) csidrivernodeservicecontroller.DaemonSetHookFunc {
