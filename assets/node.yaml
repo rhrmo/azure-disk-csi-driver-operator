@@ -25,6 +25,32 @@ spec:
         - operator: Exists
       nodeSelector:
         kubernetes.io/os: linux
+      initContainers:
+        # Merge /etc/kubernetes/cloud.conf (on the host) with secret "azure-disk-credentials" into "merged-cloud-config" emptydir.
+        - name: azure-inject-credentials
+          image: ${CLUSTER_CLOUD_CONTROLLER_MANAGER_OPERATOR_IMAGE}
+          command:
+            - /azure-config-credentials-injector
+          args:
+            - --cloud-config-file-path=/etc/cloud-config/cloud.conf
+            - --output-file-path=/etc/merged-cloud-config/cloud.conf
+          env:
+            - name: AZURE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: azure-disk-credentials
+                  key: azure_client_id
+            - name: AZURE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: azure-disk-credentials
+                  key: azure_client_secret
+          volumeMounts:
+            - name: host-cloud-config
+              mountPath: /etc/cloud-config
+              readOnly: true
+            - name: merged-cloud-config
+              mountPath: /etc/merged-cloud-config
       containers:
         - name: csi-driver
           securityContext:
@@ -55,7 +81,7 @@ spec:
               name: mountpoint-dir
             - mountPath: /etc/kubernetes/
               readOnly: true
-              name: cloud-sa-volume
+              name: merged-cloud-config
             - mountPath: /var/lib/waagent/ManagedIdentity-Settings
               readOnly: true
               name: msi
@@ -139,7 +165,7 @@ spec:
         - hostPath:
             path: /etc/kubernetes/
             type: Directory
-          name: cloud-sa-volume
+          name: host-cloud-config
         - hostPath:
             path: /var/lib/waagent/ManagedIdentity-Settings
           name: msi
@@ -155,3 +181,5 @@ spec:
             path: /sys/class/scsi_host/
             type: Directory
           name: scsi-host-dir
+        - name: merged-cloud-config
+          emptydir:

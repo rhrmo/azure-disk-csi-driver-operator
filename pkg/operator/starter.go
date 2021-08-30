@@ -2,10 +2,16 @@ package operator
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/openshift/azure-disk-csi-driver-operator/pkg/azurestackhub"
+	"github.com/openshift/library-go/pkg/operator/resource/resourcehash"
+	appsv1 "k8s.io/api/apps/v1"
+	v1 "k8s.io/client-go/informers/core/v1"
 
 	"k8s.io/client-go/dynamic"
 	kubeclient "k8s.io/client-go/kubernetes"
@@ -30,6 +36,9 @@ const (
 	operatorName             = "azure-disk-csi-driver-operator"
 	operandName              = "azure-disk-csi-driver"
 	openShiftConfigNamespace = "openshift-config"
+	secretName               = "azure-disk-credentials"
+
+	ccmOperatorImageEnvName = "CLUSTER_CLOUD_CONTROLLER_MANAGER_OPERATOR_IMAGE"
 )
 
 func RunOperator(ctx context.Context, controllerConfig *controllercmd.ControllerContext) error {
@@ -37,6 +46,7 @@ func RunOperator(ctx context.Context, controllerConfig *controllercmd.Controller
 	kubeClient := kubeclient.NewForConfigOrDie(rest.AddUserAgent(controllerConfig.KubeConfig, operatorName))
 	kubeInformersForNamespaces := v1helpers.NewKubeInformersForNamespaces(kubeClient, defaultNamespace, "", openShiftConfigNamespace)
 	nodeInformer := kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes()
+	secretInformer := kubeInformersForNamespaces.InformersFor(defaultNamespace).Core().V1().Secrets()
 
 	// Create config clientset and informer. This is used to get the cluster ID
 	configClient := configclient.NewForConfigOrDie(rest.AddUserAgent(controllerConfig.KubeConfig, operatorName))
@@ -118,24 +128,31 @@ func RunOperator(ctx context.Context, controllerConfig *controllercmd.Controller
 		configInformers,
 	).WithCSIDriverControllerService(
 		"AzureDiskDriverControllerServiceController",
-		assets.ReadFile,
+		assetWithImageReplaced(),
 		"controller.yaml",
 		kubeClient,
 		kubeInformersForNamespaces.InformersFor(defaultNamespace),
 		configInformers,
-		[]factory.Informer{nodeInformer.Informer()},
+		[]factory.Informer{
+			nodeInformer.Informer(),
+			secretInformer.Informer(),
+		},
 		csidrivercontrollerservicecontroller.WithObservedProxyDeploymentHook(),
 		csidrivercontrollerservicecontroller.WithReplicasHook(nodeInformer.Lister()),
 		azurestackhub.WithAzureStackHubDeploymentHook(runningOnAzureStackHub),
+		csidrivercontrollerservicecontroller.WithSecretHashAnnotationHook(defaultNamespace, secretName, secretInformer),
 	).WithCSIDriverNodeService(
 		"AzureDiskDriverNodeServiceController",
-		assets.ReadFile,
+		assetWithImageReplaced(),
 		"node.yaml",
 		kubeClient,
 		kubeInformersForNamespaces.InformersFor(defaultNamespace),
-		nil, // Node doesn't need to react to any changes
+		[]factory.Informer{
+			secretInformer.Informer(),
+		},
 		csidrivernodeservicecontroller.WithObservedProxyDaemonSetHook(),
 		azurestackhub.WithAzureStackHubDaemonSetHook(runningOnAzureStackHub),
+		daemonSetWithSecretHashAnnotationHook(defaultNamespace, secretName, secretInformer),
 	).WithServiceMonitorController(
 		"AzureDiskServiceMonitorController",
 		dynamicClient,
@@ -154,4 +171,52 @@ func RunOperator(ctx context.Context, controllerConfig *controllercmd.Controller
 	<-ctx.Done()
 
 	return fmt.Errorf("stopped")
+}
+
+func assetWithImageReplaced() func(name string) ([]byte, error) {
+	return func(name string) ([]byte, error) {
+		assetBytes, err := assets.ReadFile(name)
+		if err != nil {
+			return assetBytes, err
+		}
+		asset := string(assetBytes)
+		asset = strings.ReplaceAll(asset, "${CLUSTER_CLOUD_CONTROLLER_MANAGER_OPERATOR_IMAGE}", os.Getenv(ccmOperatorImageEnvName))
+		return []byte(asset), nil
+	}
+}
+
+// daemonSetWithSecretHashAnnotationHook creates a DaemonSet hook that annotates a DaemonSet with a secret's hash.
+// TODO: move to library-go.
+func daemonSetWithSecretHashAnnotationHook(
+	namespace string,
+	secretName string,
+	secretInformer v1.SecretInformer,
+) csidrivernodeservicecontroller.DaemonSetHookFunc {
+	return func(opSpec *opv1.OperatorSpec, ds *appsv1.DaemonSet) error {
+		inputHashes, err := resourcehash.MultipleObjectHashStringMapForObjectReferenceFromLister(
+			nil,
+			secretInformer.Lister(),
+			resourcehash.NewObjectRef().ForSecret().InNamespace(namespace).Named(secretName),
+		)
+		if err != nil {
+			return fmt.Errorf("invalid dependency reference: %w", err)
+		}
+		if ds.Annotations == nil {
+			ds.Annotations = map[string]string{}
+		}
+		if ds.Spec.Template.Annotations == nil {
+			ds.Spec.Template.Annotations = map[string]string{}
+		}
+		for k, v := range inputHashes {
+			annotationKey := fmt.Sprintf("operator.openshift.io/dep-%s", k)
+			if len(annotationKey) > 63 {
+				hash := sha256.Sum256([]byte(k))
+				annotationKey = fmt.Sprintf("operator.openshift.io/dep-%x", hash)
+				annotationKey = annotationKey[:63]
+			}
+			ds.Annotations[annotationKey] = v
+			ds.Spec.Template.Annotations[annotationKey] = v
+		}
+		return nil
+	}
 }

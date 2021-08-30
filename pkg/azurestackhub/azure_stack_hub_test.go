@@ -2,6 +2,8 @@ package azurestackhub
 
 import (
 	"context"
+	"testing"
+
 	cfgV1 "github.com/openshift/api/config/v1"
 	"github.com/openshift/azure-disk-csi-driver-operator/assets"
 	"github.com/openshift/client-go/config/clientset/versioned/fake"
@@ -10,7 +12,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
-	"testing"
 )
 
 func TestAzureStackHubDetectionHappyPath(t *testing.T) {
@@ -40,7 +41,7 @@ func TestInjectPodSpecHappyPath(t *testing.T) {
 	assert.Nil(t, yaml.Unmarshal(file, dep))
 
 	injectEnvAndMounts(&dep.Spec.Template.Spec)
-	assert.Len(t, dep.Spec.Template.Spec.Volumes, 5)
+	assert.Len(t, dep.Spec.Template.Spec.Volumes, 6)
 	foundCfgVolume := false
 	for _, v := range dep.Spec.Template.Spec.Volumes {
 		if v.Name == azureCfgName {
