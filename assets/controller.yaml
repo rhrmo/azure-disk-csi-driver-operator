@@ -39,6 +39,32 @@ spec:
                   matchLabels:
                     app: azure-disk-csi-driver-controller
                 topologyKey: kubernetes.io/hostname
+      initContainers:
+        # Merge /etc/kubernetes/cloud.conf (on the host) with secret "azure-disk-credentials" into "merged-cloud-config" emptydir.
+        - name: azure-inject-credentials
+          image: ${CLUSTER_CLOUD_CONTROLLER_MANAGER_OPERATOR_IMAGE}
+          command:
+            - /azure-config-credentials-injector
+          args:
+            - --cloud-config-file-path=/etc/cloud-config/cloud.conf
+            - --output-file-path=/etc/merged-cloud-config/cloud.conf
+          env:
+            - name: AZURE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: azure-disk-credentials
+                  key: azure_client_id
+            - name: AZURE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: azure-disk-credentials
+                  key: azure_client_secret
+          volumeMounts:
+            - name: host-cloud-config
+              mountPath: /etc/cloud-config
+              readOnly: true
+            - name: merged-cloud-config
+              mountPath: /etc/merged-cloud-config
       containers:
         - name: csi-driver
           image: ${DRIVER_IMAGE}
@@ -69,7 +95,7 @@ spec:
           volumeMounts:
             - name: socket-dir
               mountPath: /var/lib/csi/sockets/pluginproxy/
-            - name: cloud-sa-volume
+            - name: merged-cloud-config
               mountPath: /etc/kubernetes/
               readOnly: true
             - name: msi
@@ -291,7 +317,7 @@ spec:
       volumes:
         - name: socket-dir
           emptyDir: {}
-        - name: cloud-sa-volume
+        - name: host-cloud-config
           hostPath:
             path: /etc/kubernetes/
         - name: msi
@@ -300,3 +326,5 @@ spec:
         - name: metrics-serving-cert
           secret:
             secretName: azure-disk-csi-driver-controller-metrics-serving-cert
+        - name: merged-cloud-config
+          emptydir:
