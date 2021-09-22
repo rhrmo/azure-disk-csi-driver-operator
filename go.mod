@@ -3,10 +3,10 @@ module github.com/openshift/azure-disk-csi-driver-operator
 go 1.16
 
 require (
-	github.com/openshift/api v0.0.0-20210730095913-85e1d547cdee
-	github.com/openshift/build-machinery-go v0.0.0-20210712174854-1bb7fd1518d3
-	github.com/openshift/client-go v0.0.0-20210730113412-1811c1b3fc0e
-	github.com/openshift/library-go v0.0.0-20210830145332-4a9873bf5e74
+	github.com/openshift/api v0.0.0-20210915110300-3cd8091317c4
+	github.com/openshift/build-machinery-go v0.0.0-20210806203541-4ea9b6da3a37
+	github.com/openshift/client-go v0.0.0-20210916133943-9acee1a0fb83
+	github.com/openshift/library-go v0.0.0-20210921132243-fab0ea492ebb
 	github.com/prometheus/client_golang v1.11.0
 	github.com/spf13/cobra v1.1.3
 	github.com/spf13/pflag v1.0.5
