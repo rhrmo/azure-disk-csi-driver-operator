@@ -25,5 +25,6 @@ DriverInfo:
     nodeExpansion: true
     onlineExpansion: false
     snapshotDataSource: true
+    pvcDataSource: true
     topology: true
     multipods: true
