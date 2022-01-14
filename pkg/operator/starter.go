@@ -37,6 +37,7 @@ const (
 	operandName              = "azure-disk-csi-driver"
 	openShiftConfigNamespace = "openshift-config"
 	secretName               = "azure-disk-credentials"
+	trustedCAConfigMap       = "azure-disk-csi-driver-trusted-ca-bundle"
 
 	ccmOperatorImageEnvName = "CLUSTER_CLOUD_CONTROLLER_MANAGER_OPERATOR_IMAGE"
 )
@@ -47,6 +48,7 @@ func RunOperator(ctx context.Context, controllerConfig *controllercmd.Controller
 	kubeInformersForNamespaces := v1helpers.NewKubeInformersForNamespaces(kubeClient, defaultNamespace, "", openShiftConfigNamespace)
 	nodeInformer := kubeInformersForNamespaces.InformersFor("").Core().V1().Nodes()
 	secretInformer := kubeInformersForNamespaces.InformersFor(defaultNamespace).Core().V1().Secrets()
+	configMapInformer := kubeInformersForNamespaces.InformersFor(defaultNamespace).Core().V1().ConfigMaps()
 
 	// Create config clientset and informer. This is used to get the cluster ID
 	configClient := configclient.NewForConfigOrDie(rest.AddUserAgent(controllerConfig.KubeConfig, operatorName))
@@ -107,6 +109,7 @@ func RunOperator(ctx context.Context, controllerConfig *controllercmd.Controller
 			"node_sa.yaml",
 			"csidriver.yaml",
 			"service.yaml",
+			"cabundle_cm.yaml",
 			"rbac/attacher_role.yaml",
 			"rbac/attacher_binding.yaml",
 			"rbac/privileged_role.yaml",
@@ -136,8 +139,14 @@ func RunOperator(ctx context.Context, controllerConfig *controllercmd.Controller
 		[]factory.Informer{
 			nodeInformer.Informer(),
 			secretInformer.Informer(),
+			configMapInformer.Informer(),
 		},
 		csidrivercontrollerservicecontroller.WithObservedProxyDeploymentHook(),
+		csidrivercontrollerservicecontroller.WithCABundleDeploymentHook(
+			defaultNamespace,
+			trustedCAConfigMap,
+			configMapInformer,
+		),
 		csidrivercontrollerservicecontroller.WithReplicasHook(nodeInformer.Lister()),
 		azurestackhub.WithAzureStackHubDeploymentHook(runningOnAzureStackHub),
 		csidrivercontrollerservicecontroller.WithSecretHashAnnotationHook(defaultNamespace, secretName, secretInformer),
@@ -151,6 +160,11 @@ func RunOperator(ctx context.Context, controllerConfig *controllercmd.Controller
 			secretInformer.Informer(),
 		},
 		csidrivernodeservicecontroller.WithObservedProxyDaemonSetHook(),
+		csidrivernodeservicecontroller.WithCABundleDaemonSetHook(
+			defaultNamespace,
+			trustedCAConfigMap,
+			configMapInformer,
+		),
 		azurestackhub.WithAzureStackHubDaemonSetHook(runningOnAzureStackHub),
 		daemonSetWithSecretHashAnnotationHook(defaultNamespace, secretName, secretInformer),
 	).WithServiceMonitorController(
