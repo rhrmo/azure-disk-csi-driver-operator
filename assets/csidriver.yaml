@@ -7,4 +7,9 @@ metadata:
     csi.openshift.io/managed: "true"
 spec:
   attachRequired: true
+  fsGroupPolicy: File
   podInfoOnMount: true
+  requiresRepublish: false
+  storageCapacity: false
+  volumeLifecycleModes:
+    - Persistent
