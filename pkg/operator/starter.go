@@ -99,7 +99,6 @@ func RunOperator(ctx context.Context, controllerConfig *controllercmd.Controller
 		assets.ReadFile,
 		[]string{
 			volumeSnapshotPath,
-			storageClassPath,
 			"controller_sa.yaml",
 			"controller_pdb.yaml",
 			"node_sa.yaml",
@@ -168,6 +167,12 @@ func RunOperator(ctx context.Context, controllerConfig *controllercmd.Controller
 		dynamicClient,
 		assets.ReadFile,
 		"servicemonitor.yaml",
+	).WithStorageClassController(
+		"AzureDiskStorageClassController",
+		assets.ReadFile,
+		storageClassPath,
+		kubeClient,
+		kubeInformersForNamespaces.InformersFor(""),
 	)
 
 	klog.Info("Starting the informers")
