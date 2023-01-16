@@ -28,6 +28,7 @@ DriverInfo:
     pvcDataSource: true
     topology: true
     multipods: true
+    multiplePVsSameID: true
 Timeouts:
   PodStart: 15m
   PodDelete: 15m
