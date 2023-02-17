@@ -147,6 +147,9 @@ spec:
             - --leader-election-renew-deadline=${LEADER_ELECTION_RENEW_DEADLINE}
             - --leader-election-retry-period=${LEADER_ELECTION_RETRY_PERIOD}
             - --v=${LOG_LEVEL}
+            - --worker-threads=100
+            - --kube-api-qps=50
+            - --kube-api-burst=100
           env:
             - name: ADDRESS
               value: /var/lib/csi/sockets/pluginproxy/csi.sock
@@ -191,6 +194,9 @@ spec:
             - --leader-election-renew-deadline=${LEADER_ELECTION_RENEW_DEADLINE}
             - --leader-election-retry-period=${LEADER_ELECTION_RETRY_PERIOD}
             - --v=${LOG_LEVEL}
+            - --worker-threads=500
+            - --kube-api-qps=50
+            - --kube-api-burst=100
           env:
             - name: ADDRESS
               value: /var/lib/csi/sockets/pluginproxy/csi.sock
