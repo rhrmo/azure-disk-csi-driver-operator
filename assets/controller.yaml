@@ -139,7 +139,7 @@ spec:
             - --default-fstype=ext4
             - --feature-gates=Topology=true
             - --http-endpoint=localhost:8202
-            - --timeout=15s
+            - --timeout=30s
             - --extra-create-metadata=true
             - --strict-topology=true
             - --leader-election
@@ -188,7 +188,7 @@ spec:
           args:
             - --csi-address=$(ADDRESS)
             - --http-endpoint=localhost:8203
-            - --timeout=600s
+            - --timeout=600s # Upstream sets this to 1200s, but we consider that too high
             - --leader-election
             - --leader-election-lease-duration=${LEADER_ELECTION_LEASE_DURATION}
             - --leader-election-renew-deadline=${LEADER_ELECTION_RENEW_DEADLINE}
@@ -231,6 +231,7 @@ spec:
           image: ${RESIZER_IMAGE}
           imagePullPolicy: IfNotPresent
           args:
+            - --timeout=240s
             - --csi-address=$(ADDRESS)
             - --http-endpoint=localhost:8204
             - --handle-volume-inuse-error=true
