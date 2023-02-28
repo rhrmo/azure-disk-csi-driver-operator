@@ -41,6 +41,7 @@ const (
 	resync                   = 20 * time.Minute
 
 	ccmOperatorImageEnvName = "CLUSTER_CLOUD_CONTROLLER_MANAGER_OPERATOR_IMAGE"
+	diskEncryptionSetID     = "diskEncryptionSetID"
 )
 
 func RunOperator(ctx context.Context, controllerConfig *controllercmd.ControllerContext) error {
@@ -209,6 +210,7 @@ func RunOperator(ctx context.Context, controllerConfig *controllercmd.Controller
 		kubeClient,
 		kubeInformersForNamespaces.InformersFor(""),
 		operatorInformers,
+		getKMSKeyHook(operatorInformers.Operator().V1().ClusterCSIDrivers().Lister()),
 	)
 
 	klog.Info("Starting the informers")
