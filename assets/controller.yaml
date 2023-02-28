@@ -229,6 +229,7 @@ spec:
           image: ${RESIZER_IMAGE}
           imagePullPolicy: IfNotPresent
           args:
+            - --timeout=240s
             - --csi-address=$(ADDRESS)
             - --http-endpoint=localhost:8204
             - --leader-election
