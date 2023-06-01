@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	configv1 "github.com/openshift/api/config/v1"
 	"os"
 	"strings"
 	"time"
@@ -29,6 +30,8 @@ import (
 	"github.com/openshift/library-go/pkg/operator/csi/csidrivernodeservicecontroller"
 	goc "github.com/openshift/library-go/pkg/operator/genericoperatorclient"
 	"github.com/openshift/library-go/pkg/operator/v1helpers"
+
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 )
 
 const (
@@ -40,8 +43,9 @@ const (
 	trustedCAConfigMap       = "azure-disk-csi-driver-trusted-ca-bundle"
 	resync                   = 20 * time.Minute
 
-	ccmOperatorImageEnvName = "CLUSTER_CLOUD_CONTROLLER_MANAGER_OPERATOR_IMAGE"
-	diskEncryptionSetID     = "diskEncryptionSetID"
+	ccmOperatorImageEnvName        = "CLUSTER_CLOUD_CONTROLLER_MANAGER_OPERATOR_IMAGE"
+	diskEncryptionSetID            = "diskEncryptionSetID"
+	operatorImageVersionEnvVarName = "OPERATOR_IMAGE_VERSION"
 )
 
 func RunOperator(ctx context.Context, controllerConfig *controllercmd.ControllerContext) error {
@@ -101,7 +105,40 @@ func RunOperator(ctx context.Context, controllerConfig *controllercmd.Controller
 		go azureStackConfigSyncer.Run(ctx, 1)
 	}
 
+	desiredVersion := os.Getenv(operatorImageVersionEnvVarName)
+	missingVersion := "0.0.1-snapshot"
+
+	featureGateAccessor := featuregates.NewFeatureGateAccess(
+		desiredVersion,
+		missingVersion,
+		configInformers.Config().V1().ClusterVersions(),
+		configInformers.Config().V1().FeatureGates(),
+		controllerConfig.EventRecorder,
+	)
+	go featureGateAccessor.Run(ctx)
+	go configInformers.Start(ctx.Done())
+
+	select {
+	case <-featureGateAccessor.InitialFeatureGatesObserved():
+		featureGates, _ := featureGateAccessor.CurrentFeatureGates()
+		klog.Info("FeatureGates initialized", "knownFeatures", featureGates.KnownFeatures())
+	case <-time.After(1 * time.Minute):
+		klog.Error(nil, "timed out waiting for FeatureGate detection")
+		return fmt.Errorf("timed out waiting for FeatureGate detection")
+	}
+
+	featureGates, err := featureGateAccessor.CurrentFeatureGates()
+	if err != nil {
+		return err
+	}
+
 	deploymentAsset := &assetWithReplacement{}
+	if featureGates.Enabled(configv1.FeatureGateAzureWorkloadIdentity) {
+		deploymentAsset.Replace("${ENABLE_AZURE_WORKLOAD_IDENTITY}", "true")
+	} else {
+		deploymentAsset.Replace("${ENABLE_AZURE_WORKLOAD_IDENTITY}", "false")
+	}
+
 	deploymentAsset.Replace("${CLUSTER_CLOUD_CONTROLLER_MANAGER_OPERATOR_IMAGE}", os.Getenv(ccmOperatorImageEnvName))
 
 	csiControllerSet := csicontrollerset.NewCSIControllerSet(
