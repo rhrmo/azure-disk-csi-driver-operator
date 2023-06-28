@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/openshift/azure-disk-csi-driver-operator/pkg/azurestackhub"
-
 	apiextclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/dynamic"
@@ -16,14 +14,17 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
 
+	configv1 "github.com/openshift/api/config/v1"
 	opv1 "github.com/openshift/api/operator/v1"
 	"github.com/openshift/azure-disk-csi-driver-operator/assets"
+	"github.com/openshift/azure-disk-csi-driver-operator/pkg/azurestackhub"
 	configclient "github.com/openshift/client-go/config/clientset/versioned"
 	configinformers "github.com/openshift/client-go/config/informers/externalversions"
 	opclient "github.com/openshift/client-go/operator/clientset/versioned"
 	opinformers "github.com/openshift/client-go/operator/informers/externalversions"
 	"github.com/openshift/library-go/pkg/controller/controllercmd"
 	"github.com/openshift/library-go/pkg/controller/factory"
+	"github.com/openshift/library-go/pkg/operator/configobserver/featuregates"
 	"github.com/openshift/library-go/pkg/operator/csi/csicontrollerset"
 	"github.com/openshift/library-go/pkg/operator/csi/csidrivercontrollerservicecontroller"
 	"github.com/openshift/library-go/pkg/operator/csi/csidrivernodeservicecontroller"
@@ -37,11 +38,13 @@ const (
 	operandName              = "azure-disk-csi-driver"
 	openShiftConfigNamespace = "openshift-config"
 	secretName               = "azure-disk-credentials"
+	tokenFileKey             = "azure_federated_token_file"
 	trustedCAConfigMap       = "azure-disk-csi-driver-trusted-ca-bundle"
 	resync                   = 20 * time.Minute
 
-	ccmOperatorImageEnvName = "CLUSTER_CLOUD_CONTROLLER_MANAGER_OPERATOR_IMAGE"
-	diskEncryptionSetID     = "diskEncryptionSetID"
+	ccmOperatorImageEnvName        = "CLUSTER_CLOUD_CONTROLLER_MANAGER_OPERATOR_IMAGE"
+	diskEncryptionSetID            = "diskEncryptionSetID"
+	operatorImageVersionEnvVarName = "OPERATOR_IMAGE_VERSION"
 )
 
 func RunOperator(ctx context.Context, controllerConfig *controllercmd.ControllerContext) error {
@@ -100,6 +103,32 @@ func RunOperator(ctx context.Context, controllerConfig *controllercmd.Controller
 		}
 		go azureStackConfigSyncer.Run(ctx, 1)
 	}
+
+	desiredVersion := os.Getenv(operatorImageVersionEnvVarName)
+	missingVersion := "0.0.1-snapshot"
+
+	featureGateAccessor := featuregates.NewFeatureGateAccess(
+		desiredVersion,
+		missingVersion,
+		configInformers.Config().V1().ClusterVersions(),
+		configInformers.Config().V1().FeatureGates(),
+		controllerConfig.EventRecorder,
+	)
+	go featureGateAccessor.Run(ctx)
+	go configInformers.Start(ctx.Done())
+
+	select {
+	case <-featureGateAccessor.InitialFeatureGatesObserved():
+		featureGates, _ := featureGateAccessor.CurrentFeatureGates()
+		klog.Info("FeatureGates initialized", "knownFeatures", featureGates.KnownFeatures())
+	case <-time.After(1 * time.Minute):
+		klog.Error(nil, "timed out waiting for FeatureGate detection")
+		return fmt.Errorf("timed out waiting for FeatureGate detection")
+	}
+
+	replacedAssets := &assetWithReplacement{}
+	replacedAssets.Replace("${CLUSTER_CLOUD_CONTROLLER_MANAGER_OPERATOR_IMAGE}", os.Getenv(ccmOperatorImageEnvName))
+	replaceWorkloadIdentityConfig(replacedAssets, featureGateAccessor, kubeClient)
 
 	csiControllerSet := csicontrollerset.NewCSIControllerSet(
 		operatorClient,
@@ -160,7 +189,7 @@ func RunOperator(ctx context.Context, controllerConfig *controllercmd.Controller
 		configInformers,
 	).WithCSIDriverControllerService(
 		"AzureDiskDriverControllerServiceController",
-		assetWithImageReplaced(),
+		replacedAssets.GetAssetFunc(),
 		"controller.yaml",
 		kubeClient,
 		kubeInformersForNamespaces.InformersFor(defaultNamespace),
@@ -181,7 +210,7 @@ func RunOperator(ctx context.Context, controllerConfig *controllercmd.Controller
 		csidrivercontrollerservicecontroller.WithSecretHashAnnotationHook(defaultNamespace, secretName, secretInformer),
 	).WithCSIDriverNodeService(
 		"AzureDiskDriverNodeServiceController",
-		assetWithImageReplaced(),
+		replacedAssets.GetAssetFunc(),
 		"node.yaml",
 		kubeClient,
 		kubeInformersForNamespaces.InformersFor(defaultNamespace),
@@ -227,14 +256,54 @@ func RunOperator(ctx context.Context, controllerConfig *controllercmd.Controller
 	return fmt.Errorf("stopped")
 }
 
-func assetWithImageReplaced() func(name string) ([]byte, error) {
+type assetWithReplacement []string
+
+func (r *assetWithReplacement) Replace(old, new string) {
+	*r = append(*r, old, new)
+}
+
+func (r *assetWithReplacement) GetAssetFunc() func(name string) ([]byte, error) {
 	return func(name string) ([]byte, error) {
 		assetBytes, err := assets.ReadFile(name)
 		if err != nil {
 			return assetBytes, err
 		}
-		asset := string(assetBytes)
-		asset = strings.ReplaceAll(asset, "${CLUSTER_CLOUD_CONTROLLER_MANAGER_OPERATOR_IMAGE}", os.Getenv(ccmOperatorImageEnvName))
+
+		replacer := strings.NewReplacer(*r...)
+		asset := replacer.Replace(string(assetBytes))
+
 		return []byte(asset), nil
 	}
+}
+
+func replaceWorkloadIdentityConfig(assets *assetWithReplacement, fg featuregates.FeatureGateAccess, kubeClient *kubeclient.Clientset) error {
+	featureGates, err := fg.CurrentFeatureGates()
+	if err != nil {
+		return err
+	}
+	wiEnabled, err := isWorkloadIdentityEnabled(featureGates, kubeClient)
+	if err != nil {
+		return err
+	}
+	if wiEnabled {
+		assets.Replace("${ENABLE_AZURE_WORKLOAD_IDENTITY}", "true")
+	} else {
+		assets.Replace("${ENABLE_AZURE_WORKLOAD_IDENTITY}", "false")
+	}
+	return nil
+}
+
+func isWorkloadIdentityEnabled(featureGates featuregates.FeatureGate, kubeClient *kubeclient.Clientset) (bool, error) {
+	if !featureGates.Enabled(configv1.FeatureGateAzureWorkloadIdentity) {
+		return false, nil
+	}
+	secret, err := kubeClient.CoreV1().Secrets(defaultNamespace).Get(context.Background(), secretName, metav1.GetOptions{})
+	if err != nil {
+		return false, fmt.Errorf("could not get secret %s/%s: %v", defaultNamespace, secretName, err)
+	}
+	_, hasKey := secret.Data[tokenFileKey]
+	if !hasKey {
+		klog.Warningf("Workloads Identity feature will be disabled: feature gate is enabled, but secret %s/%s doesn't have the %q key.", defaultNamespace, secretName, tokenFileKey)
+	}
+	return hasKey, nil
 }
