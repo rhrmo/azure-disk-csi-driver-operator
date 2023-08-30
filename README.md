@@ -20,11 +20,12 @@ oc -n openshift-cluster-csi-drivers delete deployment.apps/azure-disk-csi-driver
 To build and run the operator locally:
 
 ```shell
-# Create only the resources the operator needs to run via CLI
-oc apply -f https://raw.githubusercontent.com/openshift/cluster-storage-operator/master/assets/csidriveroperators/azure-disk/09_cr.yaml
-
 # Build the operator
 make
+
+# Set kubeconfig and obtain desired version
+export KUBECONFIG=<path-to-kubeconfig>
+export OPERATOR_IMAGE_VERSION=$(oc get clusterversion/version -o json | jq '.status.desired.version' | tr -d "\"")
 
 # Set the environment variables
 export DRIVER_IMAGE=quay.io/openshift/origin-azure-disk-csi-driver:latest
@@ -35,9 +36,10 @@ export SNAPSHOTTER_IMAGE=quay.io/openshift/origin-csi-external-snapshotter:lates
 export NODE_DRIVER_REGISTRAR_IMAGE=quay.io/openshift/origin-csi-node-driver-registrar:latest
 export LIVENESS_PROBE_IMAGE=quay.io/openshift/origin-csi-livenessprobe:latest
 export KUBE_RBAC_PROXY_IMAGE=quay.io/openshift/origin-kube-rbac-proxy:latest
+export CLUSTER_CLOUD_CONTROLLER_MANAGER_OPERATOR_IMAGE=quay.io/openshift/origin-cluster-cloud-controller-manager-operator:latest
 
 
 # Run the operator via CLI
-./azure-disk-csi-driver-operator start --kubeconfig $MY_KUBECONFIG --namespace openshift-cluster-csi-drivers
+./azure-disk-csi-driver-operator start --kubeconfig $KUBECONFIG --namespace openshift-cluster-csi-drivers
 ```
 
