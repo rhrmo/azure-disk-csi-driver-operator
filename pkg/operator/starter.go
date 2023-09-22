@@ -129,7 +129,7 @@ func RunOperator(ctx context.Context, controllerConfig *controllercmd.Controller
 
 	replacedAssets := &assetWithReplacement{}
 	replacedAssets.Replace("${CLUSTER_CLOUD_CONTROLLER_MANAGER_OPERATOR_IMAGE}", os.Getenv(ccmOperatorImageEnvName))
-	replaceWorkloadIdentityConfig(replacedAssets, featureGateAccessor, kubeClient)
+	replaceWorkloadIdentityConfig(replacedAssets, featureGateAccessor)
 
 	csiControllerSet := csicontrollerset.NewCSIControllerSet(
 		operatorClient,
@@ -277,34 +277,19 @@ func (r *assetWithReplacement) GetAssetFunc() func(name string) ([]byte, error) 
 	}
 }
 
-func replaceWorkloadIdentityConfig(assets *assetWithReplacement, fg featuregates.FeatureGateAccess, kubeClient *kubeclient.Clientset) error {
+func replaceWorkloadIdentityConfig(assets *assetWithReplacement, fg featuregates.FeatureGateAccess) error {
+	workloadIdentity := "false"
+
 	featureGates, err := fg.CurrentFeatureGates()
 	if err != nil {
 		return err
 	}
-	wiEnabled, err := isWorkloadIdentityEnabled(featureGates, kubeClient)
-	if err != nil {
-		return err
-	}
-	if wiEnabled {
-		assets.Replace("${ENABLE_AZURE_WORKLOAD_IDENTITY}", "true")
-	} else {
-		assets.Replace("${ENABLE_AZURE_WORKLOAD_IDENTITY}", "false")
-	}
-	return nil
-}
 
-func isWorkloadIdentityEnabled(featureGates featuregates.FeatureGate, kubeClient *kubeclient.Clientset) (bool, error) {
-	if !featureGates.Enabled(configv1.FeatureGateAzureWorkloadIdentity) {
-		return false, nil
+	if featureGates.Enabled(configv1.FeatureGateAzureWorkloadIdentity) {
+		workloadIdentity = "true"
 	}
-	secret, err := kubeClient.CoreV1().Secrets(defaultNamespace).Get(context.Background(), cloudCredSecretName, metav1.GetOptions{})
-	if err != nil {
-		return false, fmt.Errorf("could not get secret %s/%s: %v", defaultNamespace, cloudCredSecretName, err)
-	}
-	_, hasKey := secret.Data[tokenFileKey]
-	if !hasKey {
-		klog.Warningf("Workloads Identity feature will be disabled: feature gate is enabled, but secret %s/%s doesn't have the %q key.", defaultNamespace, cloudCredSecretName, tokenFileKey)
-	}
-	return hasKey, nil
+
+	assets.Replace("${ENABLE_AZURE_WORKLOAD_IDENTITY}", workloadIdentity)
+
+	return nil
 }
