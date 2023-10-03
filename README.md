@@ -25,7 +25,7 @@ make
 
 # Set kubeconfig and obtain desired version
 export KUBECONFIG=<path-to-kubeconfig>
-export OPERATOR_IMAGE_VERSION=$(oc get clusterversion/version -o json | jq '.status.desired.version' | tr -d "\"")
+export OPERATOR_IMAGE_VERSION=$(oc get clusterversion/version -o json | jq -r '.status.desired.version')
 
 # Set the environment variables
 export DRIVER_IMAGE=quay.io/openshift/origin-azure-disk-csi-driver:latest
